@@ -1,5 +1,15 @@
 #include <TimedAction.h>
 #include <SoftwareSerial.h>
+#include <ctype.h>
+
+#define bit4800Delay 188
+#define halfBit4800Delay 94
+#define frameShortDelay 1070
+#define frameLongDelay 2444
+
+// RS232 Data
+byte RS232_rx = 25;
+byte RS232_tx = 26;
 
 // Variables for input pins.
 int alternatingHeadlightsButtonPin = 2;    // The button that activates or deactivates the alternating headlamps.
@@ -74,8 +84,70 @@ void setup() {
   pinMode( grillStrobeA, OUTPUT );
   pinMode( grillStrobeB, OUTPUT );
 
-  // Setup siren
+  // Setup siren.
   digitalWrite(sirenOutputPin, HIGH);
+
+  // Setup RS232 port.
+  pinMode( RS232_rx, INPUT );
+  pinMode( RS232_tx, OUTPUT );
+  digitalWrite( RS232_tx, HIGH );
+
+  // Ensure that the roof light bar starts in a switched off state.
+  //amberLightBarOff();
+}
+
+void RS232Write( int data ){
+  byte mask;
+  //startbit
+  digitalWrite(RS232_tx,LOW);
+  delayMicroseconds(bit4800Delay);
+  for (mask = 0x01; mask>0; mask <<= 1) {
+    if (data & mask){ // choose bit
+     digitalWrite(RS232_tx,HIGH); // send 1
+    }
+    else{
+     digitalWrite(RS232_tx,LOW); // send 0
+    }
+    delayMicroseconds(bit4800Delay);
+  }
+  //stop bit
+  digitalWrite(RS232_tx, HIGH);
+  delayMicroseconds(bit4800Delay);
+}
+
+// Function which turns the amber roof light bar off.
+void amberLightBarOff(){
+  for( int i=0; i<5; i++ ){
+      RS232Write(255);
+      delayMicroseconds( bit4800Delay );
+      RS232Write(223);
+      delayMicroseconds( bit4800Delay );
+      RS232Write(223);
+      delayMicroseconds( bit4800Delay );
+      RS232Write(125);
+      delayMicroseconds( frameShortDelay );
+      RS232Write(241);
+      delayMicroseconds( frameLongDelay );
+  }
+
+  Serial.println("Roof Ambers Off");
+}
+
+void amberLightBarLeftRightFlash(){
+  for( int i=0; i<5; i++ ){
+      RS232Write(255);
+      delayMicroseconds(bit4800Delay);
+      RS232Write(245);
+      delayMicroseconds(bit4800Delay);
+      RS232Write(81);
+      delayMicroseconds(bit4800Delay);
+      RS232Write(81);
+      delayMicroseconds(bit4800Delay);
+      RS232Write(252);
+      delayMicroseconds( frameLongDelay );
+   }  
+
+   Serial.println("Roof Ambers On");
 }
 
 // Function which detects input on button for alternating headlights and turns them on or off.
@@ -356,6 +428,9 @@ void arrivalFunction(){
     // Turn off the alternating headlights.
     alternatingHeadlightsEnabled = false;
 
+    // Turn off the amber roof bar.
+    amberLightBarOff();
+
     // If it is on, turn off the grill strobes;
     if( grillStrobeOn )forceGrillLightsChange = true;
 
@@ -388,6 +463,9 @@ void tripleNineFunction(){
 
     // Force the grill lights to come on if they are not already on.
     if( !grillStrobeOn )forceGrillLightsChange = true;
+
+    // Turn on the amber roof lights
+    amberLightBarLeftRightFlash();
     
     // Enable alternating headlights.
     alternatingHeadlightsEnabled = true;
