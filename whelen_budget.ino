@@ -17,8 +17,17 @@ int sirenPrimeButtonPin            = 3;    // The button that primes and un-prim
 int hornButtonPin                  = 4;    // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
 int arrivalButtonPin               = 5;    // This button will deactivate everything.
 int tripleNineButtonPin            = 6;    // Turns the system to 999 mode (everything on)
-int sirenOutputPin                 = 7;    // The pin which outputs the note for the siren.
+int sirenOutputPin                 = 39;    // The pin which outputs the note for the siren.
+
+// Arrival function variables
+int arrivalButtonLight = 43;
+unsigned long arrivalButtonLightLastFlashed = 0;
+bool arrivalButtonLightState = false;
+bool forceArrival = false;
+
+// Control button lights.
 int sirenButtonLightPin            = 8;
+int tripleNineButtonLightPin       = 40;
 
 // Variables for output pins.
 int leftHeadlight  = 12;
@@ -30,16 +39,22 @@ unsigned long lastUserAction = 0;
 // Alternating headlight variables.
 bool alternatingHeadlightsEnabled = false;
 int alternatingHeadlightsLamp = 0; // 0 = left; 1 = right;
+unsigned long alternatingHeadlightsLightLastFlash = 0;
+bool alternatingHeadlightsLight = false;
+int alternatingHeadlightButtonLightPin = 41;
 
 // Siren variables.
 bool sirenIsPrimed = false;
 int sirenTone = 0;          // 0 = off; 1 = Siren; 2 =hi-lo; 3 = wail-1 up; 4 = wail-1 down; 5= wail-2 up; 6=wail-2 down;
 int currentSirenNote = 500; // The note that the siren is currently playing.
 int sirenSwingDirection = 1; // 1 = up, 2 = dn
-bool forceSirenActive = false;
 bool sirenLight = false;
 unsigned long sirenButtonLastFlash = 0;
 unsigned long sirenHoldStarted = 0;
+
+// 999 Mode Variables.
+bool tripleNineLight = false;
+unsigned long tripleNineButtonLastFlash = 0;
 
 // These are the variables that are used for the siren sounds.
 // They are in format [ lower tone limit, upper tone limit, tone step, delay between each tone ]
@@ -51,8 +66,10 @@ int sirenToneFiveConfiguration [4] = {135, 660, 15, 2};
 
 // grill strobe outputs
 int grillStrobeSwitch  = 24;
-int grillStrobeA       = 22;
-int grillStrobeB       = 23;
+int grillStrobeA       = 18;
+int grillStrobeB       = 19;
+int grillStrobeC       = 20;
+int grillStrobeD       = 21;
 bool grillStrobeOn     = false;
 int grillStrobeTimer   = 0;
 unsigned long lastStrobedAt = 0;
@@ -62,15 +79,24 @@ unsigned long lastSequenced = 0;
 unsigned long lastPatternChange = 0;
 int grillStrobePattern = 1;
 bool forceGrillLightsChange = false;
+int numberOfGrillStrobePatterns = 4;
+int grillStrobeButtonLight = 42;
+unsigned long grillStrobeButtonLightLastFlashed = 0;
+bool grillStrobeButtonLightState = false;
 
 // 999 Mode
 bool tripleNineModeActive = false;
+
+// Roof bar data
+bool roofBar = false;
+bool changeRoofBarState = false;
 
 void setup() {
   // Initialise the serial connection ( for monitoring );
   Serial.begin( 38400 );
   
   // Configure the input pins.
+  pinMode( tripleNineButtonPin, INPUT );
   pinMode( alternatingHeadlightsButtonPin, INPUT );
   pinMode( sirenPrimeButtonPin, INPUT );
   pinMode( hornButtonPin, INPUT );
@@ -83,6 +109,14 @@ void setup() {
   pinMode( sirenButtonLightPin, OUTPUT );
   pinMode( grillStrobeA, OUTPUT );
   pinMode( grillStrobeB, OUTPUT );
+  pinMode( grillStrobeC, OUTPUT );
+  pinMode( grillStrobeD, OUTPUT );
+  pinMode( grillStrobeButtonLight, OUTPUT );
+  pinMode( arrivalButtonLight, OUTPUT );
+
+  // Let the grill strobes LED light up solidly
+  digitalWrite( grillStrobeButtonLight, HIGH );
+  grillStrobeButtonLightState = true;
 
   // Setup siren.
   digitalWrite(sirenOutputPin, HIGH);
@@ -92,8 +126,25 @@ void setup() {
   pinMode( RS232_tx, OUTPUT );
   digitalWrite( RS232_tx, HIGH );
 
+  // Configure 999 mode button light
+  pinMode( tripleNineButtonLightPin, OUTPUT );
+
+  // Configure alternating headlights button light
+  pinMode( alternatingHeadlightButtonLightPin, OUTPUT );
+
+  // Light up the arrival button light
+  digitalWrite( arrivalButtonLight, HIGH );
+  arrivalButtonLightState = true;
+/**  
+int arrivalButtonLight = 43;
+unsigned long arrivalButtonLightLastFlashed = 0;
+bool arrivalButtonLightState = false;
+**/
   // Ensure that the roof light bar starts in a switched off state.
-  //amberLightBarOff();
+  amberLightBarOff();
+
+  // Log a message to console to say ready.
+  Serial.println("System set up complete. Ready to go.");
 }
 
 void RS232Write( int data ){
@@ -121,31 +172,21 @@ void amberLightBarOff(){
       RS232Write(255);
       delayMicroseconds( bit4800Delay );
       RS232Write(223);
-      delayMicroseconds( bit4800Delay );
-      RS232Write(223);
-      delayMicroseconds( bit4800Delay );
-      RS232Write(125);
-      delayMicroseconds( frameShortDelay );
-      RS232Write(241);
-      delayMicroseconds( frameLongDelay );
+      RS232Write(95);
+      RS232Write(21);
   }
 
   Serial.println("Roof Ambers Off");
 }
 
-void amberLightBarLeftRightFlash(){
+void amberLightBarLeftRightFlash(){ 
   for( int i=0; i<5; i++ ){
       RS232Write(255);
-      delayMicroseconds(bit4800Delay);
+      delayMicroseconds( bit4800Delay );
       RS232Write(245);
-      delayMicroseconds(bit4800Delay);
-      RS232Write(81);
-      delayMicroseconds(bit4800Delay);
-      RS232Write(81);
-      delayMicroseconds(bit4800Delay);
-      RS232Write(252);
-      delayMicroseconds( frameLongDelay );
-   }  
+      RS232Write(125);
+      RS232Write(197);
+   }
 
    Serial.println("Roof Ambers On");
 }
@@ -163,6 +204,9 @@ void alternatingHeadlightsControlFunction(){
        // Print a line to the serial connection to show that the state has changed.
        if( alternatingHeadlightsEnabled ){ Serial.println( "Alternating Headlights Switched On." ); } else { Serial.println( "Alternating Headlights Switched Off." ); }
     }
+
+    // indicator LED
+    alternatingHeadlightsFlashLED();
 }
 
 void alternatingHeadlightsFunction(){
@@ -203,18 +247,26 @@ void primeSirenFunction(){
       if( sirenIsPrimed ){ Serial.println( "Siren is primed." ); } else { Serial.println( "Siren is not primed." ); }
   }
 
-  if( sirenTone == 0 && ( millis() - sirenButtonLastFlash >= 1000 ) ){
-    if( sirenLight ){
-      digitalWrite( sirenButtonLightPin, LOW );
-      sirenLight = false;
-    } else {
-      if( sirenIsPrimed ){
+  if( sirenTone == 0 && sirenIsPrimed ){
+    digitalWrite( sirenButtonLightPin, HIGH);
+    sirenLight = true;
+  } else {
+    if( sirenIsPrimed && ( millis() - sirenButtonLastFlash >= 1000 ) ){
+      if( sirenLight ){
+        digitalWrite( sirenButtonLightPin, LOW );
+        sirenLight = false;
+      } else {
         digitalWrite( sirenButtonLightPin, HIGH);
         sirenLight = true;
       }
+
+      sirenButtonLastFlash = millis();
     }
-    
-    sirenButtonLastFlash = millis();
+
+    if( sirenLight && !sirenIsPrimed ){
+      digitalWrite( sirenButtonLightPin, LOW );
+      sirenLight = false;
+    }
   }
 }
 
@@ -331,11 +383,13 @@ void sirenToneFiveFunction(){
 
 void sirenChangeToneFunction(){      
   // If the horn is pressed and it has been more than a second since last user action, change siren tone
-  if( ( digitalRead( hornButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ) || ( forceSirenActive ) ){
+  if( ( digitalRead( hornButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ) ){
       // If the siren is not primed, do nothing.
       if( !sirenIsPrimed ){
         Serial.println("Siren was not activated as you have not pressed the prime siren button.");
          bool overrideButtonActionStart = false ;
+         
+         // Return. Do not change the siren tone.
         return;
       }
 
@@ -388,8 +442,6 @@ void sirenChangeToneFunction(){
 
     // Record this as a user action
     lastUserAction = millis();
-
-    forceSirenActive = false;
   }
 
  // if it's been more than 500ms since last user action, but less than 750ms, shut off the siren.
@@ -418,7 +470,7 @@ void muteSiren(){
 
 void arrivalFunction(){
   // If the arrival button is pressed and it's more than a second since last user action
-  if( digitalRead( arrivalButtonPin ) == HIGH && ( millis() - lastUserAction >= 1000 ) ){
+  if( digitalRead( arrivalButtonPin ) == HIGH && ( millis() - lastUserAction >= 1000 ) || forceArrival ){
     // Record this as a user interaction
     lastUserAction = millis();
 
@@ -428,14 +480,17 @@ void arrivalFunction(){
     // Turn off the alternating headlights.
     alternatingHeadlightsEnabled = false;
 
-    // Turn off the amber roof bar.
-    amberLightBarOff();
-
     // If it is on, turn off the grill strobes;
     if( grillStrobeOn )forceGrillLightsChange = true;
 
     // Ensure that the 999 mode flag is de-activated so the button can be used again.
     tripleNineModeActive = false;
+
+    roofBar = false;
+    changeRoofBarState = true;
+
+    // Change forceArrival to false to avoid re-triggering this if it was a forced trigger
+    forceArrival = false;
 
     // Print log message.
     Serial.println("Arrival activated. Everything switched off.");
@@ -458,44 +513,137 @@ void tripleNineFunction(){
 
     // Prime the siren and set tone to 1 so that it starts straight away.
     sirenIsPrimed = true;
-    forceSirenActive = true;
     sirenTone = 0;
 
-    // Force the grill lights to come on if they are not already on.
-    if( !grillStrobeOn )forceGrillLightsChange = true;
-
-    // Turn on the amber roof lights
-    amberLightBarLeftRightFlash();
+    // Force the grill lights to come on if they are not already on, also force them to pattern 0 so that they use pattern 1 when they come on.
+    if( !grillStrobeOn ){
+      forceGrillLightsChange = true;
+      grillStrobePattern     = 0;
+    }
     
     // Enable alternating headlights.
     alternatingHeadlightsEnabled = true;
 
     // Set 999 mode flag
     tripleNineModeActive = true;
+
+    roofBar = true;
+    changeRoofBarState = true;
+  }
+
+  tripleNineFlashLED();
+}
+
+void checkFlash(){
+  if( roofBar && changeRoofBarState ){
+    changeRoofBarState = false;
+    
+    // Turn on the amber roof lights
+    amberLightBarLeftRightFlash();
+  } else {
+    if( changeRoofBarState ){
+      changeRoofBarState = false;
+      
+      // Turn off the amber roof bar.
+      amberLightBarOff();
+    }
   }
 }
 
-void grillLightsOnOffFunction(){
-    if( digitalRead( grillStrobeSwitch ) == HIGH && ( millis() - lastUserAction >= 1000 ) || forceGrillLightsChange){
-      // Do the necessary action.
-      if( grillStrobeOn ){
-          Serial.println("Grill strobes off.");
-          digitalWrite( grillStrobeA, LOW );
-          digitalWrite( grillStrobeB, LOW );
+void grillLightsOnOffFunction(){  
+    // Single push when the grill strobes are off will turn them on
+    if(
+      digitalRead( grillStrobeSwitch ) == HIGH &&
+      ( millis() - lastUserAction >= 1000 )    ||
+      forceGrillLightsChange                   &&
+      !grillStrobeOn
+    ){
+      // If the grill strobe is not on, it needs to be on.
+      if( !grillStrobeOn ){
+        // The grill strobe pattern cannot be 0 it must be 1.
+        if( grillStrobePattern == 0 )grillStrobePattern++;
+        
+        String pretext = "Grill strobes on. Pattern: ";
+        Serial.println(pretext + grillStrobePattern);
+        
+        digitalWrite( grillStrobeA, HIGH );
+        digitalWrite( grillStrobeB, HIGH );
+        digitalWrite( grillStrobeC, HIGH );
+        digitalWrite( grillStrobeD, HIGH );
+  
+        grillStrobeOn = true;
+  
+        // Make force grill lights active off to avoid re-trigger.
+        forceGrillLightsChange = false;
       } else {
-          Serial.println("Grill strobes on.");
-          digitalWrite( grillStrobeA, HIGH );
-          digitalWrite( grillStrobeB, HIGH );
+        // The grill strobe is on, so we need to change the pattern.        
+        Serial.println("Changing Patterns...");
+    
+        // If at max pattern, reset to zero
+        if( grillStrobePattern==numberOfGrillStrobePatterns )grillStrobePattern=0;
+    
+        // Increment pattern to 1
+        grillStrobePattern++;
+    
+        // Store the time of the pattern change.
+        lastPatternChange = millis();
+    
+        // Display the new pattern in console.
+        String pretext = "The new pattern is: ";
+        Serial.println( pretext + grillStrobePattern );
+    
+        // Mute all strobes to clear for the new pattern
+        muteAllStrobes();
       }
 
-      // Update the grill strobes status.
-      grillStrobeOn = !grillStrobeOn;
+      // Reset LED sequenced time
+      lastSequenced = 0;
+    }
 
-      // Record this as a user action.
-      lastUserAction = millis();
+    // Double tapping the switch when the grill strobes are on will turn the grill strobes off.
+    if(
+      digitalRead( grillStrobeSwitch ) == HIGH &&
+      ( millis() - lastUserAction >= 100 )     &&
+      ( millis() - lastUserAction <= 750 )     &&
+      grillStrobeOn                            ||
+      forceGrillLightsChange                   &&
+      grillStrobeOn
+    ){
+      // Then turn the grill strobes off.
+      Serial.println("Grill strobes off.");
+      digitalWrite( grillStrobeA, LOW );
+      digitalWrite( grillStrobeB, LOW );
+      digitalWrite( grillStrobeC, LOW );
+      digitalWrite( grillStrobeD, LOW );
+
+      grillStrobeOn = false;
+
+      // If this is the result of a double click action, grill strobes need to go back to the last pattern, as they got moved forward on the first click.
+      if(( millis() - lastUserAction >= 100 ) && ( millis() - lastUserAction <= 750 )){
+        grillStrobePattern--;
+        if( grillStrobePattern == 0 )grillStrobePattern = numberOfGrillStrobePatterns;
+      }
+
+      // Store the time of the pattern change.
+      lastPatternChange = millis();
 
       // Make force grill lights active off to avoid re-trigger.
       forceGrillLightsChange = false;
+
+      // Let the grill strobes LED light up solidly
+      digitalWrite( grillStrobeButtonLight, HIGH );
+    }
+
+    // Record the user action
+    if( digitalRead( grillStrobeSwitch ) == HIGH )lastUserAction = millis();
+
+    // If the grill strobes are on, and it's been more than a second since the button LED last changed state, change the state now.
+    if( grillStrobeOn ){
+      if( millis() - grillStrobeButtonLightLastFlashed >= 1000 ){
+        grillStrobeButtonLightState = !grillStrobeButtonLightState;
+        digitalWrite( grillStrobeButtonLight, grillStrobeButtonLightState);
+        grillStrobeButtonLightLastFlashed = millis();
+      }
     }
 }
 
@@ -516,6 +664,12 @@ void grillLightsStrobeFunction(){
         break;
       case 1:
         pin = grillStrobeB;
+        break;
+      case 2:
+        pin = grillStrobeC;
+        break;
+      case 3:
+        pin = grillStrobeD;
         break;
       default:
         return;
@@ -540,36 +694,6 @@ void muteAllStrobes(){
   }
 }
 
-void grillStrobePatternControlFunction(){
-  if( millis() - lastPatternChange >= 5000 ){
-    // Do not change pattern if grill lights disabled
-    if( !grillStrobeOn )return;
-    
-    Serial.println("Changing Patterns...");
-
-    // If at max pattern, reset to zero
-    if( grillStrobePattern==4 )grillStrobePattern=0;
-
-    // Increment pattern to 1
-    grillStrobePattern++;
-
-    // Store the time of the pattern change.
-    lastPatternChange = millis();
-
-    // Display the new pattern in console.
-    String pretext = "The new pattern is: ";
-    Serial.println( pretext + grillStrobePattern );
-
-    // Mute all strobes to clear for the new pattern
-    muteAllStrobes();
-
-    // Reset LED sequenced time
-    lastSequenced = 0;
-  }
-  
-  
-}
-
 void grillStrobePatternOneFunction(){
   if( grillStrobePattern != 1 )return;
 
@@ -577,7 +701,7 @@ void grillStrobePatternOneFunction(){
   if( lastSequenced == 0 ){
     grillStrobeAllowed[0] = true;
     grillStrobeAllowed[1] = false;
-    grillStrobeAllowed[2] = false;
+    grillStrobeAllowed[2] = true;
     grillStrobeAllowed[3] = false;
   }
 
@@ -585,6 +709,8 @@ void grillStrobePatternOneFunction(){
     // Flip which LEDs are illuminated.
     grillStrobeAllowed[0] = !grillStrobeAllowed[0];
     grillStrobeAllowed[1] = !grillStrobeAllowed[1];
+    grillStrobeAllowed[2] = !grillStrobeAllowed[2];
+    grillStrobeAllowed[3] = !grillStrobeAllowed[3];
   
     // Set the strobe timer
     grillStrobeTimer = 25;
@@ -601,8 +727,8 @@ void grillStrobePatternTwoFunction(){
   if( lastSequenced == 0 ){
     grillStrobeAllowed[0] = true;
     grillStrobeAllowed[1] = true;
-    grillStrobeAllowed[2] = false;
-    grillStrobeAllowed[3] = false;
+    grillStrobeAllowed[2] = true;
+    grillStrobeAllowed[3] = true;
   }
 
   if( millis() - lastSequenced >= 500  || lastSequenced == 0 ){
@@ -610,6 +736,8 @@ void grillStrobePatternTwoFunction(){
     // Flip which LEDs are illuminated.
     grillStrobeAllowed[0] = !grillStrobeAllowed[0];
     grillStrobeAllowed[1] = !grillStrobeAllowed[1];
+    grillStrobeAllowed[2] = !grillStrobeAllowed[2];
+    grillStrobeAllowed[3] = !grillStrobeAllowed[3];
   
     // Set the strobe timer
     grillStrobeTimer = 25;
@@ -627,8 +755,8 @@ void grillStrobePatternThreeFunction(){
   if( lastSequenced == 0 ){
     grillStrobeAllowed[0] = true;
     grillStrobeAllowed[1] = true;
-    grillStrobeAllowed[2] = false;
-    grillStrobeAllowed[3] = false;
+    grillStrobeAllowed[2] = true;
+    grillStrobeAllowed[3] = true;
   
     // Set the strobe timer
     grillStrobeTimer = 500;
@@ -639,14 +767,55 @@ void grillStrobePatternThreeFunction(){
   }
 }
 
+void alternatingHeadlightsFlashLED(){
+  if( alternatingHeadlightsEnabled ){
+    // Only flashs if flashed a second ago
+    if( millis() - alternatingHeadlightsLightLastFlash < 1000 )return;
+
+    // Emit a flashing light when active
+    digitalWrite( alternatingHeadlightButtonLightPin, !alternatingHeadlightsLight );
+
+    // Make sure to flash the opposite state next time.
+    alternatingHeadlightsLight = !alternatingHeadlightsLight;
+
+    // Store last flash.
+    alternatingHeadlightsLightLastFlash = millis();
+  } else {
+    // Just emit a steady light on the button pin.
+    digitalWrite( alternatingHeadlightButtonLightPin, HIGH );
+    if( !alternatingHeadlightsLight )alternatingHeadlightsLight = true;
+  }
+}
+
+void tripleNineFlashLED(){
+  // If the triple nine mode is active, flash the LED for the 999 button.
+  if( tripleNineModeActive ){
+    // Only flash if last flashed more than a second ago.
+    if( millis() - tripleNineButtonLastFlash < 1000 )return;
+    
+    // Emit a flashing light to the button when active.
+    digitalWrite( tripleNineButtonLightPin, !tripleNineLight );
+
+    // Make sure to use the opposite state next time this function runs.
+    tripleNineLight = !tripleNineLight;
+
+    // Update the time that the button was last flashed.
+    tripleNineButtonLastFlash = millis();
+  } else {
+    // Just emit a steady light on that button.
+    digitalWrite( tripleNineButtonLightPin, HIGH );
+    if(!tripleNineLight)tripleNineLight = true;
+  }
+}
+
 void grillStrobePatternFourFunction(){
   if( grillStrobePattern != 4 )return;
 
   // If this is the first sequence, need to set the start arrangement
   grillStrobeAllowed[0] = true;
   grillStrobeAllowed[1] = true;
-  grillStrobeAllowed[2] = false;
-  grillStrobeAllowed[3] = false;
+  grillStrobeAllowed[2] = true;
+  grillStrobeAllowed[3] = true;
 
   // Set the strobe timer
   grillStrobeTimer = 0;
@@ -664,7 +833,6 @@ TimedAction arrivalControl               = TimedAction(50,  arrivalFunction);
 TimedAction tripleNineControl            = TimedAction(50,  tripleNineFunction);
 TimedAction grillStrobeControl           = TimedAction(50,  grillLightsOnOffFunction);
 TimedAction grillStrobeFlash             = TimedAction(25,  grillLightsStrobeFunction);
-TimedAction grillStrobeSequence          = TimedAction(50,  grillStrobePatternControlFunction);
 
 // Grill strobe patterns.
 TimedAction grillStrobePatternOne        = TimedAction(50, grillStrobePatternOneFunction );
@@ -679,6 +847,7 @@ TimedAction sirenToneThreeAudio          = TimedAction(sirenToneThreeConfigurati
 TimedAction sirenToneFourAudio           = TimedAction(sirenToneFourConfiguration[3], sirenToneFourFunction);
 TimedAction sirenToneFiveAudio           = TimedAction(sirenToneFiveConfiguration[3], sirenToneFiveFunction);
 
+TimedAction changeRoofBarStateFunction           = TimedAction(500, checkFlash);
 void loop() {
   // Alternating headlights functions.
   alternatingHeadlightsControl.check();    // The function that detects if alternating headlights need to be turned on or off.
@@ -698,7 +867,6 @@ void loop() {
   // grill lights
   grillStrobeControl.check();
   grillStrobeFlash.check();
-  grillStrobeSequence.check();
 
   // grill lights patterns
   grillStrobePatternOne.check();
@@ -711,4 +879,6 @@ void loop() {
 
   // 999 mode functions.
   tripleNineControl.check();   // Function that detects if the 999 mode button is pressed. This will trigger everything.
+
+  changeRoofBarStateFunction.check();
 }
