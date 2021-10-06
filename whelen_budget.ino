@@ -705,7 +705,7 @@ void grillStrobePatternOneFunction(){
     grillStrobeAllowed[3] = false;
   }
 
-  if( millis() - lastSequenced >= 1000 || lastSequenced == 0 ){
+  if( millis() - lastSequenced >= 500 || lastSequenced == 0 ){
     // Flip which LEDs are illuminated.
     grillStrobeAllowed[0] = !grillStrobeAllowed[0];
     grillStrobeAllowed[1] = !grillStrobeAllowed[1];
