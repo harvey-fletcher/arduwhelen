@@ -12,22 +12,20 @@ byte RS232_rx = 25;
 byte RS232_tx = 26;
 
 // Variables for input pins.
-int alternatingHeadlightsButtonPin = 2;    // The button that activates or deactivates the alternating headlamps.
-int sirenPrimeButtonPin            = 3;    // The button that primes and un-primes the siren.
-int hornButtonPin                  = 4;    // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
-int arrivalButtonPin               = 5;    // This button will deactivate everything.
-int tripleNineButtonPin            = 6;    // Turns the system to 999 mode (everything on)
-int sirenOutputPin                 = 39;    // The pin which outputs the note for the siren.
+int alternatingHeadlightsButton[] = {3,40};    // The button that activates or deactivates the alternating headlamps.
+int sirenButton[]                 = {4,41};    // The button that primes and un-primes the siren.
+int arrivalButton[]               = {5,42};    // This button will deactivate everything.
+int tripleNineButton[]            = {6,43};    // Turns the system to 999 mode (everything on)
+int grillStrobeButton[]           = {7,44};
+
+//int hornButtonPin               = 2;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
+int hornButtonPin                 = 9;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
+int sirenOutputPin                = 39;    // The pin which outputs the note for the siren.
 
 // Arrival function variables
-int arrivalButtonLight = 43;
 unsigned long arrivalButtonLightLastFlashed = 0;
 bool arrivalButtonLightState = false;
 bool forceArrival = false;
-
-// Control button lights.
-int sirenButtonLightPin            = 8;
-int tripleNineButtonLightPin       = 40;
 
 // Variables for output pins.
 int leftHeadlight  = 12;
@@ -41,11 +39,12 @@ bool alternatingHeadlightsEnabled = false;
 int alternatingHeadlightsLamp = 0; // 0 = left; 1 = right;
 unsigned long alternatingHeadlightsLightLastFlash = 0;
 bool alternatingHeadlightsLight = false;
-int alternatingHeadlightButtonLightPin = 41;
 
 // Siren variables.
 bool sirenIsPrimed = false;
 int sirenTone = 0;          // 0 = off; 1 = Siren; 2 =hi-lo; 3 = wail-1 up; 4 = wail-1 down; 5= wail-2 up; 6=wail-2 down;
+//bool sirenIsPrimed = true;
+//int sirenTone = 3;
 int currentSirenNote = 500; // The note that the siren is currently playing.
 int sirenSwingDirection = 1; // 1 = up, 2 = dn
 bool sirenLight = false;
@@ -65,7 +64,6 @@ int sirenToneFourConfiguration [4] = {240, 750, 15, 4};
 int sirenToneFiveConfiguration [4] = {135, 660, 15, 2};
 
 // grill strobe outputs
-int grillStrobeSwitch  = 24;
 int grillStrobeA       = 18;
 int grillStrobeB       = 19;
 int grillStrobeC       = 20;
@@ -80,7 +78,6 @@ unsigned long lastPatternChange = 0;
 int grillStrobePattern = 1;
 bool forceGrillLightsChange = false;
 int numberOfGrillStrobePatterns = 4;
-int grillStrobeButtonLight = 42;
 unsigned long grillStrobeButtonLightLastFlashed = 0;
 bool grillStrobeButtonLightState = false;
 
@@ -92,30 +89,39 @@ bool roofBar = false;
 bool changeRoofBarState = false;
 
 void setup() {
+  pinMode( 45, OUTPUT );
+  pinMode( 46, OUTPUT );
+  digitalWrite( 45, HIGH );
+  digitalWrite( 46, HIGH );
+  
   // Initialise the serial connection ( for monitoring );
   Serial.begin( 38400 );
   
   // Configure the input pins.
-  pinMode( tripleNineButtonPin, INPUT );
-  pinMode( alternatingHeadlightsButtonPin, INPUT );
-  pinMode( sirenPrimeButtonPin, INPUT );
+  pinMode( tripleNineButton[0], INPUT );
+  pinMode( alternatingHeadlightsButton[0], INPUT );
+  pinMode( sirenButton[0],   INPUT );
+  pinMode( arrivalButton[0], INPUT );
+
   pinMode( hornButtonPin, INPUT );
-  pinMode( arrivalButtonPin, INPUT );
 
   // Configure the output pins.
+  pinMode( sirenButton[1],       OUTPUT );
+  pinMode( grillStrobeButton[1], OUTPUT );
+  pinMode( arrivalButton[1], OUTPUT );
+  pinMode( tripleNineButton[1], OUTPUT );
+  pinMode( alternatingHeadlightsButton[1], OUTPUT );
+  
   pinMode( leftHeadlight,  OUTPUT );
   pinMode( rightHeadlight, OUTPUT );
   pinMode( sirenOutputPin, OUTPUT );
-  pinMode( sirenButtonLightPin, OUTPUT );
   pinMode( grillStrobeA, OUTPUT );
   pinMode( grillStrobeB, OUTPUT );
   pinMode( grillStrobeC, OUTPUT );
   pinMode( grillStrobeD, OUTPUT );
-  pinMode( grillStrobeButtonLight, OUTPUT );
-  pinMode( arrivalButtonLight, OUTPUT );
 
   // Let the grill strobes LED light up solidly
-  digitalWrite( grillStrobeButtonLight, HIGH );
+  digitalWrite( grillStrobeButton[1], HIGH );
   grillStrobeButtonLightState = true;
 
   // Setup siren.
@@ -126,14 +132,8 @@ void setup() {
   pinMode( RS232_tx, OUTPUT );
   digitalWrite( RS232_tx, HIGH );
 
-  // Configure 999 mode button light
-  pinMode( tripleNineButtonLightPin, OUTPUT );
-
-  // Configure alternating headlights button light
-  pinMode( alternatingHeadlightButtonLightPin, OUTPUT );
-
   // Light up the arrival button light
-  digitalWrite( arrivalButtonLight, HIGH );
+  digitalWrite( arrivalButton[1], HIGH );
   arrivalButtonLightState = true;
 /**  
 int arrivalButtonLight = 43;
@@ -194,7 +194,7 @@ void amberLightBarLeftRightFlash(){
 // Function which detects input on button for alternating headlights and turns them on or off.
 void alternatingHeadlightsControlFunction(){
     // If the button is pressed, and it's been more than a second since the last user action, change the state.
-    if( digitalRead( alternatingHeadlightsButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
+    if( digitalRead( alternatingHeadlightsButton[0] ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
        // The button is pressed and we need to change alternating headlamps state to either on or off (opposite what they are now)
        alternatingHeadlightsEnabled = !alternatingHeadlightsEnabled;
 
@@ -236,7 +236,7 @@ void alternatingHeadlightsFunction(){
 
 void primeSirenFunction(){
   // If the user pressed the prime siren button and it's been more than a second since the last user interaction.
-  if( digitalRead( sirenPrimeButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
+  if( digitalRead( sirenButton[0] ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
       // Flip the siren primed flag
       sirenIsPrimed = !sirenIsPrimed;
 
@@ -248,15 +248,15 @@ void primeSirenFunction(){
   }
 
   if( sirenTone == 0 && sirenIsPrimed ){
-    digitalWrite( sirenButtonLightPin, HIGH);
+    digitalWrite( sirenButton[1], HIGH);
     sirenLight = true;
   } else {
     if( sirenIsPrimed && ( millis() - sirenButtonLastFlash >= 1000 ) ){
       if( sirenLight ){
-        digitalWrite( sirenButtonLightPin, LOW );
+        digitalWrite( sirenButton[1], LOW );
         sirenLight = false;
       } else {
-        digitalWrite( sirenButtonLightPin, HIGH);
+        digitalWrite( sirenButton[1], HIGH);
         sirenLight = true;
       }
 
@@ -264,7 +264,7 @@ void primeSirenFunction(){
     }
 
     if( sirenLight && !sirenIsPrimed ){
-      digitalWrite( sirenButtonLightPin, LOW );
+      digitalWrite( sirenButton[1], LOW );
       sirenLight = false;
     }
   }
@@ -430,7 +430,7 @@ void sirenChangeToneFunction(){
     }
 
     // Turn on the indicator light.
-    digitalWrite( sirenButtonLightPin, HIGH);
+    digitalWrite( sirenButton[1], HIGH);
 
     // Siren always swings up first.
     sirenSwingDirection = 1;
@@ -462,7 +462,7 @@ void muteSiren(){
    Serial.println( "Siren is now switched off." );
 
    // Turn off the indicator light
-   digitalWrite( sirenButtonLightPin, LOW);
+   digitalWrite( sirenButton[1], LOW);
 
    // Record this as a user action
     lastUserAction = millis();
@@ -470,7 +470,7 @@ void muteSiren(){
 
 void arrivalFunction(){
   // If the arrival button is pressed and it's more than a second since last user action
-  if( digitalRead( arrivalButtonPin ) == HIGH && ( millis() - lastUserAction >= 1000 ) || forceArrival ){
+  if( digitalRead( arrivalButton[0] ) == HIGH && ( millis() - lastUserAction >= 1000 ) || forceArrival ){
     // Record this as a user interaction
     lastUserAction = millis();
 
@@ -499,7 +499,7 @@ void arrivalFunction(){
 
 void tripleNineFunction(){
   // If user has pressed the 999 mode button and it's been more than a second since the last user interaction
-  if( digitalRead( tripleNineButtonPin ) == HIGH && ( millis() - lastUserAction >= 1000 ) ){
+  if( digitalRead( tripleNineButton[0] ) == HIGH && ( millis() - lastUserAction >= 1000 ) ){
     // Record this as a user interaction
     lastUserAction = millis();
     
@@ -512,8 +512,8 @@ void tripleNineFunction(){
     Serial.println("999 Mode activated.");
 
     // Prime the siren and set tone to 1 so that it starts straight away.
+    if( !sirenIsPrimed )sirenTone = 0;
     sirenIsPrimed = true;
-    sirenTone = 0;
 
     // Force the grill lights to come on if they are not already on, also force them to pattern 0 so that they use pattern 1 when they come on.
     if( !grillStrobeOn ){
@@ -553,7 +553,7 @@ void checkFlash(){
 void grillLightsOnOffFunction(){  
     // Single push when the grill strobes are off will turn them on
     if(
-      digitalRead( grillStrobeSwitch ) == HIGH &&
+      digitalRead( grillStrobeButton[0] ) == HIGH &&
       ( millis() - lastUserAction >= 1000 )    ||
       forceGrillLightsChange                   &&
       !grillStrobeOn
@@ -602,7 +602,7 @@ void grillLightsOnOffFunction(){
 
     // Double tapping the switch when the grill strobes are on will turn the grill strobes off.
     if(
-      digitalRead( grillStrobeSwitch ) == HIGH &&
+      digitalRead( grillStrobeButton[0] ) == HIGH &&
       ( millis() - lastUserAction >= 100 )     &&
       ( millis() - lastUserAction <= 750 )     &&
       grillStrobeOn                            ||
@@ -631,17 +631,17 @@ void grillLightsOnOffFunction(){
       forceGrillLightsChange = false;
 
       // Let the grill strobes LED light up solidly
-      digitalWrite( grillStrobeButtonLight, HIGH );
+      digitalWrite( grillStrobeButton[1], HIGH );
     }
 
     // Record the user action
-    if( digitalRead( grillStrobeSwitch ) == HIGH )lastUserAction = millis();
+    if( digitalRead( grillStrobeButton[0] ) == HIGH )lastUserAction = millis();
 
     // If the grill strobes are on, and it's been more than a second since the button LED last changed state, change the state now.
     if( grillStrobeOn ){
       if( millis() - grillStrobeButtonLightLastFlashed >= 1000 ){
         grillStrobeButtonLightState = !grillStrobeButtonLightState;
-        digitalWrite( grillStrobeButtonLight, grillStrobeButtonLightState);
+        digitalWrite( grillStrobeButton[1], grillStrobeButtonLightState);
         grillStrobeButtonLightLastFlashed = millis();
       }
     }
@@ -773,7 +773,7 @@ void alternatingHeadlightsFlashLED(){
     if( millis() - alternatingHeadlightsLightLastFlash < 1000 )return;
 
     // Emit a flashing light when active
-    digitalWrite( alternatingHeadlightButtonLightPin, !alternatingHeadlightsLight );
+    digitalWrite( alternatingHeadlightsButton[1], !alternatingHeadlightsLight );
 
     // Make sure to flash the opposite state next time.
     alternatingHeadlightsLight = !alternatingHeadlightsLight;
@@ -782,7 +782,7 @@ void alternatingHeadlightsFlashLED(){
     alternatingHeadlightsLightLastFlash = millis();
   } else {
     // Just emit a steady light on the button pin.
-    digitalWrite( alternatingHeadlightButtonLightPin, HIGH );
+    digitalWrite( alternatingHeadlightsButton[1], HIGH );
     if( !alternatingHeadlightsLight )alternatingHeadlightsLight = true;
   }
 }
@@ -794,7 +794,7 @@ void tripleNineFlashLED(){
     if( millis() - tripleNineButtonLastFlash < 1000 )return;
     
     // Emit a flashing light to the button when active.
-    digitalWrite( tripleNineButtonLightPin, !tripleNineLight );
+    digitalWrite( tripleNineButton[1], !tripleNineLight );
 
     // Make sure to use the opposite state next time this function runs.
     tripleNineLight = !tripleNineLight;
@@ -803,7 +803,7 @@ void tripleNineFlashLED(){
     tripleNineButtonLastFlash = millis();
   } else {
     // Just emit a steady light on that button.
-    digitalWrite( tripleNineButtonLightPin, HIGH );
+    digitalWrite( tripleNineButton[1], HIGH );
     if(!tripleNineLight)tripleNineLight = true;
   }
 }
