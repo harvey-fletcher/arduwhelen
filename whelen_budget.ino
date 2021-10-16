@@ -18,14 +18,22 @@ int arrivalButton[]               = {5,42};    // This button will deactivate ev
 int tripleNineButton[]            = {6,43};    // Turns the system to 999 mode (everything on)
 int grillStrobeButton[]           = {7,44};
 
-//int hornButtonPin               = 2;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
-int hornButtonPin                 = 9;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
+int hornButtonPin               = 2;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
+//int hornButtonPin                 = 9;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
 int sirenOutputPin                = 39;    // The pin which outputs the note for the siren.
 
 // Arrival function variables
 unsigned long arrivalButtonLightLastFlashed = 0;
 bool arrivalButtonLightState = false;
 bool forceArrival = false;
+
+// Rear reds function variables
+int           rearRedsButton[]          = {8, 45};
+bool          rearRedsActive            = false;
+int           rearRedsOutput            = 48;
+unsigned long rearRedsLastStateChange   = 0;
+bool          rearRedsPatternChangeLive = false;
+bool          rearRedsButtonState       = true;
 
 // Variables for output pins.
 int leftHeadlight  = 12;
@@ -102,7 +110,7 @@ void setup() {
   pinMode( alternatingHeadlightsButton[0], INPUT );
   pinMode( sirenButton[0],   INPUT );
   pinMode( arrivalButton[0], INPUT );
-
+  pinMode( rearRedsButton[0], INPUT );
   pinMode( hornButtonPin, INPUT );
 
   // Configure the output pins.
@@ -119,6 +127,8 @@ void setup() {
   pinMode( grillStrobeB, OUTPUT );
   pinMode( grillStrobeC, OUTPUT );
   pinMode( grillStrobeD, OUTPUT );
+  pinMode( rearRedsOutput, OUTPUT );
+  pinMode( rearRedsButton[1], OUTPUT );
 
   // Let the grill strobes LED light up solidly
   digitalWrite( grillStrobeButton[1], HIGH );
@@ -189,6 +199,32 @@ void amberLightBarLeftRightFlash(){
    }
 
    Serial.println("Roof Ambers On");
+}
+
+// Function which turns the rear reds on or off
+void rearRedsControlFunction(){  
+  // If the button is not pushed, don't need to check any further.
+  if( !digitalRead( rearRedsButton[0] ) )return;
+
+  if( millis() - rearRedsLastStateChange >= 250 ){
+    digitalWrite( rearRedsOutput, !rearRedsActive );
+    rearRedsActive = !rearRedsActive;
+  
+    Serial.println("rear reds state change");
+  
+    // If this is the second rapid push, turn off the rear reds.
+  }
+  
+  digitalWrite( rearRedsButton[1], HIGH );
+  
+  // Record this as a user action, and also update the rear reds last state change counter.
+  lastUserAction = rearRedsLastStateChange = millis();
+}
+
+void rearRedsButtonFlashFunction(){
+  if( !rearRedsActive ) return;
+  digitalWrite( rearRedsButton[1], rearRedsButtonState ? HIGH : LOW );
+  rearRedsButtonState = !rearRedsButtonState;
 }
 
 // Function which detects input on button for alternating headlights and turns them on or off.
@@ -834,6 +870,10 @@ TimedAction tripleNineControl            = TimedAction(50,  tripleNineFunction);
 TimedAction grillStrobeControl           = TimedAction(50,  grillLightsOnOffFunction);
 TimedAction grillStrobeFlash             = TimedAction(25,  grillLightsStrobeFunction);
 
+// Rear reds control
+TimedAction rearRedsControl              = TimedAction( 50, rearRedsControlFunction );
+TimedAction rearRedsButtonFlash          = TimedAction( 1000, rearRedsButtonFlashFunction );
+
 // Grill strobe patterns.
 TimedAction grillStrobePatternOne        = TimedAction(50, grillStrobePatternOneFunction );
 TimedAction grillStrobePatternTwo        = TimedAction(50, grillStrobePatternTwoFunction );
@@ -856,6 +896,10 @@ void loop() {
   // siren functions.
   primeSirenControl.check();  // The function that detects when the prime siren button is pressed.
   sirenToneControl.check();   // Will detect presses to the horn, and if the siren is primed, activate it at tone 1.
+
+  // Rear reds functions
+  rearRedsControl.check();
+  rearRedsButtonFlash.check();
 
   // siren sounds.
   sirenToneOneAudio.check();   // Run function for siren tone one.
