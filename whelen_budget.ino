@@ -1,15 +1,10 @@
+#include <lightbar.h>
+#include <serial.h>
 #include <TimedAction.h>
 #include <SoftwareSerial.h>
-#include <ctype.h>
 
-#define bit4800Delay 188
-#define halfBit4800Delay 94
-#define frameShortDelay 1070
-#define frameLongDelay 2444
-
-// RS232 Data
-byte RS232_rx = 25;
-byte RS232_tx = 26;
+// Setup the amber light bar connection.
+lightBar amberLightBar;
 
 // Variables for input pins.
 int alternatingHeadlightsButton[] = {3,40};    // The button that activates or deactivates the alternating headlamps.
@@ -17,6 +12,7 @@ int sirenButton[]                 = {4,41};    // The button that primes and un-
 int arrivalButton[]               = {5,42};    // This button will deactivate everything.
 int tripleNineButton[]            = {6,43};    // Turns the system to 999 mode (everything on)
 int grillStrobeButton[]           = {7,44};
+int ambersButton[]                = {9,46};
 
 int hornButtonPin               = 2;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
 //int hornButtonPin                 = 9;      // Connects to vehicle horn and controls changing of the siren tones when the siren is primed.
@@ -98,10 +94,8 @@ bool changeRoofBarState = false;
 
 void setup() {
   pinMode( 45, OUTPUT );
-  pinMode( 46, OUTPUT );
   digitalWrite( 45, HIGH );
-  digitalWrite( 46, HIGH );
-  
+
   // Initialise the serial connection ( for monitoring );
   Serial.begin( 38400 );
   
@@ -111,6 +105,7 @@ void setup() {
   pinMode( sirenButton[0],   INPUT );
   pinMode( arrivalButton[0], INPUT );
   pinMode( rearRedsButton[0], INPUT );
+  pinMode( ambersButton[0], INPUT );
   pinMode( hornButtonPin, INPUT );
 
   // Configure the output pins.
@@ -119,6 +114,7 @@ void setup() {
   pinMode( arrivalButton[1], OUTPUT );
   pinMode( tripleNineButton[1], OUTPUT );
   pinMode( alternatingHeadlightsButton[1], OUTPUT );
+  pinMode( ambersButton[1], OUTPUT );
   
   pinMode( leftHeadlight,  OUTPUT );
   pinMode( rightHeadlight, OUTPUT );
@@ -137,11 +133,6 @@ void setup() {
   // Setup siren.
   digitalWrite(sirenOutputPin, HIGH);
 
-  // Setup RS232 port.
-  pinMode( RS232_rx, INPUT );
-  pinMode( RS232_tx, OUTPUT );
-  digitalWrite( RS232_tx, HIGH );
-
   // Light up the arrival button light
   digitalWrite( arrivalButton[1], HIGH );
   arrivalButtonLightState = true;
@@ -151,54 +142,32 @@ unsigned long arrivalButtonLightLastFlashed = 0;
 bool arrivalButtonLightState = false;
 **/
   // Ensure that the roof light bar starts in a switched off state.
-  amberLightBarOff();
+  amberLightBar.flashFunction_02();
+  delay(3000);
+  amberLightBar.flashFunction_00();
 
   // Log a message to console to say ready.
   Serial.println("System set up complete. Ready to go.");
 }
 
-void RS232Write( int data ){
-  byte mask;
-  //startbit
-  digitalWrite(RS232_tx,LOW);
-  delayMicroseconds(bit4800Delay);
-  for (mask = 0x01; mask>0; mask <<= 1) {
-    if (data & mask){ // choose bit
-     digitalWrite(RS232_tx,HIGH); // send 1
+void ambersControlFunction(){
+    if(!digitalRead( ambersButton[0] ) )return;
+    
+    if( millis() - lastUserAction >= 250 ){      
+      if( roofBar ){
+        amberLightBar.flashFunction_00();
+      } else {
+        amberLightBar.flashFunction_01();
+      }
+
+      roofBar = !roofBar;
     }
-    else{
-     digitalWrite(RS232_tx,LOW); // send 0
-    }
-    delayMicroseconds(bit4800Delay);
-  }
-  //stop bit
-  digitalWrite(RS232_tx, HIGH);
-  delayMicroseconds(bit4800Delay);
+
+    lastUserAction = millis();
 }
 
-// Function which turns the amber roof light bar off.
-void amberLightBarOff(){
-  for( int i=0; i<5; i++ ){
-      RS232Write(255);
-      delayMicroseconds( bit4800Delay );
-      RS232Write(223);
-      RS232Write(95);
-      RS232Write(21);
-  }
-
-  Serial.println("Roof Ambers Off");
-}
-
-void amberLightBarLeftRightFlash(){ 
-  for( int i=0; i<5; i++ ){
-      RS232Write(255);
-      delayMicroseconds( bit4800Delay );
-      RS232Write(245);
-      RS232Write(125);
-      RS232Write(197);
-   }
-
-   Serial.println("Roof Ambers On");
+void ambersButtonFunction(){
+  digitalWrite( ambersButton[1], roofBar ? HIGH : LOW );
 }
 
 // Function which turns the rear reds on or off
@@ -575,13 +544,13 @@ void checkFlash(){
     changeRoofBarState = false;
     
     // Turn on the amber roof lights
-    amberLightBarLeftRightFlash();
+    amberLightBar.flashFunction_13();
   } else {
     if( changeRoofBarState ){
       changeRoofBarState = false;
       
       // Turn off the amber roof bar.
-      amberLightBarOff();
+      amberLightBar.flashFunction_00();
     }
   }
 }
@@ -869,6 +838,8 @@ TimedAction arrivalControl               = TimedAction(50,  arrivalFunction);
 TimedAction tripleNineControl            = TimedAction(50,  tripleNineFunction);
 TimedAction grillStrobeControl           = TimedAction(50,  grillLightsOnOffFunction);
 TimedAction grillStrobeFlash             = TimedAction(25,  grillLightsStrobeFunction);
+TimedAction ambersControl                = TimedAction( 50, ambersControlFunction );
+TimedAction ambersButtonState            = TimedAction(50, ambersButtonFunction);
 
 // Rear reds control
 TimedAction rearRedsControl              = TimedAction( 50, rearRedsControlFunction );
@@ -917,6 +888,9 @@ void loop() {
   grillStrobePatternTwo.check();
   grillStrobePatternThree.check();
   grillStrobePatternFour.check();
+
+  ambersControl.check();
+  ambersButtonState.check();
 
   // arrival functions.
   arrivalControl.check();      // Function that detects if the arrival button is pressed. This will shut everything off.
