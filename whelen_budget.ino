@@ -43,10 +43,11 @@ int rightHeadlight = 13;
 unsigned long lastUserAction = 0;
 
 // Alternating headlight variables.
-bool alternatingHeadlightsEnabled = false;
-int alternatingHeadlightsLamp = 0; // 0 = left; 1 = right;
+bool          alternatingHeadlightsEnabled = false;
+int          activeHeadlight = 0;
+unsigned long lastHeadlightStateChange = 0; // Will change the illuminated headlight every 750ms when alternatingHeadlightsEnabled = true;
 unsigned long alternatingHeadlightsLightLastFlash = 0;
-bool alternatingHeadlightsLight = false;
+bool          alternatingHeadlightsLight = true;
 
 // Siren variables.
 bool sirenIsPrimed = false;
@@ -88,6 +89,18 @@ bool forceGrillLightsChange = false;
 int numberOfGrillStrobePatterns = 4;
 unsigned long grillStrobeButtonLightLastFlashed = 0;
 bool grillStrobeButtonLightState = false;
+
+// reverse beeper variables.
+bool          reverseBeeperEnabled    = true;
+unsigned long reverseBeeperLastChange = 0;
+int           reverseGearPin          = 53;
+int           reverseBeeperNote       = 0;
+
+// brake detector variables.
+bool          isBraking        = false;
+unsigned long timeStartBraking = 0;
+unsigned long timeStopBraking  = 0;
+int           brakeRelayPin    = 52;
 
 // 999 Mode
 bool tripleNineModeActive = false;
@@ -150,6 +163,9 @@ int arrivalButtonLight = 43;
 unsigned long arrivalButtonLightLastFlashed = 0;
 bool arrivalButtonLightState = false;
 **/
+  pinMode( reverseGearPin, INPUT_PULLUP );
+  pinMode( brakeRelayPin, INPUT_PULLUP );
+
   // Ensure that the roof light bar starts in a switched off state.
   amberLightBarOff();
 
@@ -227,52 +243,98 @@ void rearRedsButtonFlashFunction(){
   rearRedsButtonState = !rearRedsButtonState;
 }
 
-// Function which detects input on button for alternating headlights and turns them on or off.
-void alternatingHeadlightsControlFunction(){
-    // If the button is pressed, and it's been more than a second since the last user action, change the state.
-    if( digitalRead( alternatingHeadlightsButton[0] ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
-       // The button is pressed and we need to change alternating headlamps state to either on or off (opposite what they are now)
-       alternatingHeadlightsEnabled = !alternatingHeadlightsEnabled;
+void reversingBeeperFunction(){
+  // Flip the state of the input because it is INPUT_PULLUP;
+  bool isInReverse = !digitalRead( reverseGearPin );
+  
+  // If in reverse and the siren prime button is pressed, the reverse beeper will be enabled / disabled.
+  if(
+    ( millis() - lastUserAction >= 250 && digitalRead( sirenButton[0] ) ) &&
+    isInReverse
+  ){
+    reverseBeeperEnabled = !reverseBeeperEnabled;
+  }
 
-       // Record this as a user action.
-       lastUserAction = millis();
+  // If siren is active, no beeping.
+  if( sirenTone != 0 )return;
 
-       // Print a line to the serial connection to show that the state has changed.
-       if( alternatingHeadlightsEnabled ){ Serial.println( "Alternating Headlights Switched On." ); } else { Serial.println( "Alternating Headlights Switched Off." ); }
+  // If not in reverse, and the siren isn't on, turn off the reverse beeper.
+  if( !isInReverse || !reverseBeeperEnabled ){
+    noTone( sirenOutputPin );    
+    return;
+  }
+
+  if( reverseBeeperNote == 0 ){
+    // play the note, but only if there has been silence for 500MS
+    if( millis() - reverseBeeperLastChange >= 500 ){
+      tone( sirenOutputPin, 1750 );
+      reverseBeeperLastChange = millis();
+      reverseBeeperNote = 1;
     }
-
-    // indicator LED
-    alternatingHeadlightsFlashLED();
+  } else {
+    // play silence, but only if the note has been playing for 1S
+    if( millis() - reverseBeeperLastChange >= 1000 ){
+      noTone( sirenOutputPin );
+      reverseBeeperLastChange = millis();
+      reverseBeeperNote = 0;
+    }
+  }
 }
 
 void alternatingHeadlightsFunction(){
-    // If alternating headlights are not enabled, make sure both relays are off.
-    if( !alternatingHeadlightsEnabled ){
-        digitalWrite( leftHeadlight, LOW );
-        digitalWrite( rightHeadlight, LOW );
-        return;
-    }
+  // This function will flash the LED on the control board if it is time to do so.
+  alternatingHeadlightsFlashLED();
+  
+  // Detect button press on the alternating headlights button.
+  if( millis() - lastUserAction >= 250 && digitalRead( alternatingHeadlightsButton[0] ) ){
+    // Change the variable so that the headlight state is changed.
+    alternatingHeadlightsEnabled = !alternatingHeadlightsEnabled;
 
-    // Switch the headlights between left and right.
-    switch( alternatingHeadlightsLamp ){
-      case 0:
-        // Left lamp.
-        digitalWrite( leftHeadlight, HIGH );
-        digitalWrite( rightHeadlight, LOW );
-        alternatingHeadlightsLamp = 1;
-        break;
-      case 1:
-        // Right lamp.
-        digitalWrite( leftHeadlight,  LOW );
-        digitalWrite( rightHeadlight, HIGH );
-        alternatingHeadlightsLamp = 0;
-        break;
+    // Record this as a user action.
+    lastUserAction = millis();
+
+    // Log a message
+    String newState   = alternatingHeadlightsEnabled ? "ON" : "OFF";
+    String theMessage = "The alternating headlights are now " + newState;
+    Serial.println( theMessage );
+  }
+
+  // If either headlight is on when it's not supposed to be, switch them off, and go no further..
+  if( !alternatingHeadlightsEnabled ){
+    if( activeHeadlight != 0 ){
+      digitalWrite( leftHeadlight, LOW );
+      digitalWrite( rightHeadlight, LOW );
+      activeHeadlight = 0;
     }
+    
+    return;
+  }
+
+  // If it has not been more than 750ms since last headlight state change, don't do anything.
+  if( millis() - lastHeadlightStateChange < 500 )return;
+
+  // If the headlights are off, or the left headlight is on, turn the left headlight off and the right headlight on.
+  if( activeHeadlight == 0 || activeHeadlight == 1 ){
+    digitalWrite( leftHeadlight, LOW );
+    digitalWrite( rightHeadlight, HIGH );
+    activeHeadlight = 2;
+    lastHeadlightStateChange = millis();
+    return; 
+  }
+
+  // If the right headlight is on, turn it off and the left headlight on.
+  if( activeHeadlight == 2 ){
+    digitalWrite( leftHeadlight, HIGH );
+    digitalWrite( rightHeadlight, LOW );
+    activeHeadlight = 1;
+    lastHeadlightStateChange = millis();
+    return; 
+  }
 }
 
 void primeSirenFunction(){
-  // If the user pressed the prime siren button and it's been more than a second since the last user interaction.
-  if( digitalRead( sirenButton[0] ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ){
+  // If the user pressed the prime siren button and it's been more than a second since the last user interaction, and not reversing
+  if( digitalRead( sirenButton[0] ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) && digitalRead( reverseGearPin ) ){
       // Flip the siren primed flag
       sirenIsPrimed = !sirenIsPrimed;
 
@@ -417,26 +479,69 @@ void sirenToneFiveFunction(){
   }
 }
 
-void sirenChangeToneFunction(){      
-  // If the horn is pressed and it has been more than a second since last user action, change siren tone
-  if( ( digitalRead( hornButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ) ){
-      // If the siren is not primed, do nothing.
-      if( !sirenIsPrimed ){
-        Serial.println("Siren was not activated as you have not pressed the prime siren button.");
-         bool overrideButtonActionStart = false ;
-         
-         // Return. Do not change the siren tone.
-        return;
-      }
-
-    // If sirenTone is already on the max, reset it to 0 so it becomes 1.
-    if( sirenTone == 6 )sirenTone = 0;
-
-    // Clear any pending siren holds.
-    sirenHoldStarted = 0;
+void brakeBasedSirenUrgency(){
+  // If the siren is not primed, do not run this code.
+  if( sirenTone == 0 )return;
+  
+  // If the user is not braking, do nothing.
+  if( !isBraking ){
+    // If the user stopped braking between 1 and 2.5 seconds ago, reset siren tone to 1, unless it is already 1.
+    if(
+      (millis() - timeStopBraking) > 1000  &&
+      (millis() - timeStopBraking) <= 2500 &&
+      sirenTone != 1
+    ){
+      sirenTone = 1;
+      sirenToneChooser();
+    }
     
-    // Change the tone of the siren.
-    sirenTone++;
+    return;
+  }
+  
+  // Calculate how long the braking pedal has been pressed.
+  int brakingForSeconds = ( ( millis() - timeStartBraking ) / 1000 );
+
+  // By default, the tone does not get changed.
+  bool changedTone = false;
+
+  // Decide if the tone needs to get changed.
+  if(
+    brakingForSeconds < 2
+  ){
+    return;
+  } else if(
+    brakingForSeconds >= 2  &&
+    brakingForSeconds <  5 &&
+    sirenTone != 2
+  ){
+    sirenTone = 2;
+    changedTone = true;
+  } else if(
+    brakingForSeconds >= 5 &&
+    brakingForSeconds < 8  &&
+    sirenTone != 4
+  ){
+    sirenTone = 4;
+    changedTone = true;
+  } else if (
+    brakingForSeconds >= 8 &&
+    sirenTone != 5
+  ){
+    sirenTone = 5;
+    changedTone = true;
+  }
+
+  // If the tone needs changing, log message, and then call the tone change function.
+  if( changedTone ){
+    String message = "The siren tone is now ";
+    message = message + sirenTone;
+    Serial.println( message );
+
+    sirenToneChooser();
+  }
+}
+
+void sirenToneChooser(){
 
     // Reset the siren note to the default, which is 500.
     switch(sirenTone){
@@ -464,6 +569,33 @@ void sirenChangeToneFunction(){
         sirenChangeToneFunction();
         return;
     }
+}
+
+void sirenChangeToneFunction(){
+  // Controls the brake based siren urgency.
+  brakeBasedSirenUrgency();
+          
+  // If the horn is pressed and it has been more than a second since last user action, change siren tone
+  if( ( digitalRead( hornButtonPin ) == HIGH && ( ( millis() - lastUserAction ) >= 1000 ) ) ){
+      // If the siren is not primed, do nothing.
+      if( !sirenIsPrimed ){
+        Serial.println("Siren was not activated as you have not pressed the prime siren button.");
+         bool overrideButtonActionStart = false ;
+         
+         // Return. Do not change the siren tone.
+        return;
+      }
+
+    // If sirenTone is already on the max, reset it to 0 so it becomes 1.
+    if( sirenTone == 6 )sirenTone = 0;
+
+    // Clear any pending siren holds.
+    sirenHoldStarted = 0;
+    
+    // Change the tone of the siren.
+    sirenTone++;
+
+    sirenToneChooser();
 
     // Turn on the indicator light.
     digitalWrite( sirenButton[1], HIGH);
@@ -860,8 +992,25 @@ void grillStrobePatternFourFunction(){
   lastSequenced=millis();
 }
 
+void brakeDetector(){
+  if( digitalRead( brakeRelayPin ) == isBraking ){
+    Serial.println("The braking state has changed.");
+
+    // Clear any stored brake times.
+    timeStartBraking = 0;
+    timeStopBraking  = 0;
+
+    if( digitalRead( brakeRelayPin ) ){
+      timeStopBraking  = millis();
+    } else {
+      timeStartBraking = millis();
+    }
+  }
+  
+  isBraking = !digitalRead( brakeRelayPin );
+}
+
 // Set up timed tasks.
-TimedAction alternatingHeadlightsControl = TimedAction(50,  alternatingHeadlightsControlFunction);
 TimedAction alternatingHeadlightsAction  = TimedAction(500, alternatingHeadlightsFunction);
 TimedAction primeSirenControl            = TimedAction(50,  primeSirenFunction);
 TimedAction sirenToneControl             = TimedAction(50,  sirenChangeToneFunction);
@@ -888,9 +1037,10 @@ TimedAction sirenToneFourAudio           = TimedAction(sirenToneFourConfiguratio
 TimedAction sirenToneFiveAudio           = TimedAction(sirenToneFiveConfiguration[3], sirenToneFiveFunction);
 
 TimedAction changeRoofBarStateFunction           = TimedAction(500, checkFlash);
+TimedAction reverseBeeper                        = TimedAction( 100, reversingBeeperFunction );
+TimedAction brakeSensor                          = TimedAction( 50,  brakeDetector );
 void loop() {
   // Alternating headlights functions.
-  alternatingHeadlightsControl.check();    // The function that detects if alternating headlights need to be turned on or off.
   alternatingHeadlightsAction.check();     // The function which alternates the headlights between left and right.
 
   // siren functions.
@@ -925,4 +1075,6 @@ void loop() {
   tripleNineControl.check();   // Function that detects if the 999 mode button is pressed. This will trigger everything.
 
   changeRoofBarStateFunction.check();
+  reverseBeeper.check();
+  brakeSensor.check();
 }
