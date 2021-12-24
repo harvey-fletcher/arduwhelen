@@ -93,6 +93,7 @@ bool grillStrobeButtonLightState = false;
 // reverse beeper variables.
 bool          reverseBeeperEnabled    = true;
 unsigned long reverseBeeperLastChange = 0;
+unsigned long lastReverseBeeperEnabledStateChange = 0;
 int           reverseGearPin          = 53;
 int           reverseBeeperNote       = 0;
 
@@ -249,10 +250,12 @@ void reversingBeeperFunction(){
   
   // If in reverse and the siren prime button is pressed, the reverse beeper will be enabled / disabled.
   if(
-    ( millis() - lastUserAction >= 250 && digitalRead( sirenButton[0] ) ) &&
-    isInReverse
+       digitalRead( sirenButton[0] )
+    && isInReverse
+    && ( millis() - lastReverseBeeperEnabledStateChange >= 2000 )
   ){
     reverseBeeperEnabled = !reverseBeeperEnabled;
+    lastReverseBeeperEnabledStateChange = millis();
   }
 
   // If siren is active, no beeping.
@@ -311,7 +314,7 @@ void alternatingHeadlightsFunction(){
   }
 
   // If it has not been more than 750ms since last headlight state change, don't do anything.
-  if( millis() - lastHeadlightStateChange < 500 )return;
+  if( millis() - lastHeadlightStateChange < 300 )return;
 
   // If the headlights are off, or the left headlight is on, turn the left headlight off and the right headlight on.
   if( activeHeadlight == 0 || activeHeadlight == 1 ){
@@ -603,7 +606,7 @@ void sirenChangeToneFunction(){
     // Siren always swings up first.
     sirenSwingDirection = 1;
 
-    // Print the new siren tone (no siren connected yet -- DEBUG ONLY )
+    // Print the new siren tone (no siren connected yet -- DEBUG ONLY )a
     String prelude    = "Siren tone changed. Tone is now tone: " ;
     String theMessage = prelude + sirenTone;
     Serial.println( theMessage );
